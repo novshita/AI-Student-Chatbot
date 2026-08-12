@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learning Path Result - Space Explorer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+            color: #fff;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+
+        /* Header styling */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            background: rgba(51, 51, 51, 0.9);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 180, 0, 0.2);
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 1000;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: white;
+            font-weight: 600;
+            font-size: 1.2rem;
+        }
+
+        .logo img {
+            height: 35px;
+            filter: drop-shadow(0 0 10px rgba(255, 180, 0, 0.5));
+        }
+
+        .logo:hover img {
+            transform: rotate(10deg) scale(1.1);
+            transition: all 0.3s ease;
+        }
+
+        /* Navigation styling */
+        nav ul {
+            list-style: none;
+            display: flex;
+            gap: 30px;
+        }
+
+        nav ul li a {
+            color: white;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 400;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        nav ul li a:before {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            transition: width 0.3s ease;
+        }
+
+        nav ul li a:hover:before {
+            width: 100%;
+        }
+
+        nav ul li a:hover {
+            color: #ffb400;
+        }
+
+        .main-container {
+            display: flex;
+            margin-top: 70px; /* Account for fixed header */
+        }
+
+        /* Animated canvas background */
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        /* Floating cosmic elements */
+        .cosmic-element {
+            position: fixed;
+            opacity: 0.2;
+            animation: cosmicFloat 8s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .cosmic-element:nth-child(1) {
+            top: 15%;
+            left: 8%;
+            animation-delay: 0s;
+        }
+
+        .cosmic-element:nth-child(2) {
+            top: 60%;
+            right: 12%;
+            animation-delay: 3s;
+        }
+
+        .cosmic-element:nth-child(3) {
+            bottom: 25%;
+            left: 15%;
+            animation-delay: 6s;
+        }
+
+        @keyframes cosmicFloat {
+            0%, 100% { transform: translateY(0px) rotate(0deg); opacity: 0.1; }
+            25% { transform: translateY(-15px) rotate(90deg); opacity: 0.3; }
+            50% { transform: translateY(-30px) rotate(180deg); opacity: 0.2; }
+            75% { transform: translateY(-15px) rotate(270deg); opacity: 0.3; }
+        }
+
+        /* Sidebar styling with space theme */
+        .sidebar {
+            width: 280px;
+            background: rgba(26, 39, 53, 0.9);
+            backdrop-filter: blur(15px);
+            border-right: 2px solid rgba(255, 180, 0, 0.3);
+            padding: 25px 20px;
+            box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
+            height: calc(100vh - 70px); /* Account for header height */
+            overflow-y: auto;
+            position: fixed;
+            top: 70px;
+            z-index: 100;
+        }
+
+        .sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sidebar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            border-radius: 3px;
+        }
+
+        .sidebar h2 {
+            text-align: center;
+            font-size: 1.8rem;
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 25px;
+            border-bottom: 2px solid rgba(255, 180, 0, 0.3);
+            padding-bottom: 15px;
+            font-weight: 700;
+        }
+
+        .module {
+            margin-bottom: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 180, 0, 0.2);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .module:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 106, 0, 0.2);
+            border-color: rgba(255, 180, 0, 0.4);
+        }
+
+        .module-header {
+            display: flex;
+            align-items: center;
+            padding: 0;
+        }
+
+        .module button {
+            padding: 15px 18px;
+            font-size: 0.95rem;
+            cursor: pointer;
+            background: transparent;
+            color: #fff;
+            border: none;
+            text-align: left;
+            flex-grow: 1;
+            transition: all 0.3s ease;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 500;
+        }
+
+        .module button:hover {
+            background: rgba(255, 180, 0, 0.1);
+            color: #ffb400;
+        }
+
+        .go-button {
+            width: 45px;
+            height: 45px;
+            margin: 8px;
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(255, 106, 0, 0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .go-button:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .go-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(255, 106, 0, 0.4);
+        }
+
+        .go-button:hover:before {
+            left: 100%;
+        }
+
+        /* Subtopics with enhanced styling */
+        .subtopics {
+            background: rgba(255, 255, 255, 0.03);
+            margin: 0;
+            list-style: none;
+            padding: 15px 20px;
+            display: none;
+            border-top: 1px solid rgba(255, 180, 0, 0.2);
+        }
+
+        .subtopics li {
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+            color: #e0e0e0;
+            padding-left: 15px;
+            position: relative;
+        }
+
+        .subtopics li:before {
+            content: '★';
+            position: absolute;
+            left: 0;
+            color: #ff6a00;
+            font-size: 0.8rem;
+        }
+
+        /* Main content styling */
+        .content {
+            margin-left: 300px;
+            padding: 30px;
+            overflow-y: auto;
+            height: calc(100vh - 70px); /* Account for header height */
+            width: calc(100% - 300px);
+            position: relative;
+            z-index: 10;
+        }
+
+        .content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .content::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        .content::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            border-radius: 4px;
+        }
+
+        .lesson-section {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(15px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 180, 0, 0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .lesson-section:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+            transition: left 0.8s;
+        }
+
+        .lesson-section:hover:before {
+            left: 100%;
+        }
+
+        .lesson-section:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(255, 106, 0, 0.2);
+            border-color: rgba(255, 180, 0, 0.4);
+        }
+
+        .content h1 {
+            font-size: 2.2rem;
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 20px;
+            font-weight: 700;
+            position: relative;
+        }
+
+        .content h1:after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            width: 60px;
+            height: 3px;
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            border-radius: 2px;
+        }
+
+        .content p {
+            font-size: 1.1rem;
+            color: #e8e8e8;
+            line-height: 1.8;
+            margin-bottom: 25px;
+            text-align: justify;
+        }
+
+        .video-container {
+            position: relative;
+            margin-top: 20px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        iframe {
+            border: none;
+            border-radius: 15px;
+            width: 100%;
+            max-width: 600px;
+            height: 340px;
+            box-shadow: 0 8px 25px rgba(255, 106, 0, 0.2);
+        }
+
+        /* Enhanced floating buttons */
+        .floating-buttons {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            z-index: 1000;
+        }
+
+        .quiz-button, .chat-button {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(255, 106, 0, 0.4);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .quiz-button:before, .chat-button:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .quiz-button:hover, .chat-button:hover {
+            transform: translateY(-5px) scale(1.1);
+            box-shadow: 0 10px 30px rgba(255, 106, 0, 0.6);
+        }
+
+        .quiz-button:hover:before, .chat-button:hover:before {
+            left: 100%;
+        }
+
+        /* Enhanced popup styling */
+        .popup-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .popup {
+            background: rgba(26, 39, 53, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 30px;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            border: 2px solid rgba(255, 180, 0, 0.3);
+            position: relative;
+        }
+
+        .popup::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .popup::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .popup::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            border-radius: 3px;
+        }
+
+        .close-button {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            color: white;
+            border: none;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .close-button:hover {
+            transform: rotate(90deg) scale(1.1);
+        }
+
+        #quiz-content {
+            color: #fff;
+            padding-top: 20px;
+        }
+
+        /* Responsive design */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 250px;
+            }
+            
+            .content {
+                margin-left: 270px;
+                width: calc(100% - 270px);
+            }
+        }
+
+        @media (max-width: 768px) {
+            header {
+                flex-direction: column;
+                gap: 15px;
+                padding: 15px 20px;
+                height: auto;
+            }
+
+            nav ul {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+
+            .main-container {
+                margin-top: 120px; /* Adjusted for taller mobile header */
+            }
+
+            .sidebar {
+                width: 100%;
+                height: auto;
+                position: relative;
+                top: 0;
+                z-index: 10;
+            }
+
+            .content {
+                margin-left: 0;
+                width: 100%;
+                padding: 20px 15px;
+                height: auto;
+            }
+
+            .floating-buttons {
+                bottom: 20px;
+                right: 20px;
+            }
+
+            .quiz-button, .chat-button {
+                width: 50px;
+                height: 50px;
+                font-size: 16px;
+            }
+
+            iframe {
+                height: 250px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .lesson-section {
+                padding: 20px 15px;
+            }
+
+            .content h1 {
+                font-size: 1.8rem;
+            }
+
+            .content p {
+                font-size: 1rem;
+            }
+        }
+
+        /* Loading animation for quiz */
+        .loading-quiz {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            padding: 40px;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 180, 0, 0.3);
+            border-left-color: #ff6a00;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header with navigation -->
+    <header>
+        <a href="/" class="logo">
+            <img src="static/astronaut.png" alt="Learning Path Generator" />
+            <span>LearnPath AI</span>
+        </a>
+        <nav>
+            <ul>
+                <li><a href="/"><i class="fas fa-home"></i> Home</a></li>
+                <li><a href="/about"><i class="fas fa-info-circle"></i> About</a></li>
+                <li><a href="/contact"><i class="fas fa-envelope"></i> Contact</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Animated background canvas -->
+    <canvas id="space"></canvas>
+
+    <!-- Floating cosmic elements -->
+    <div class="cosmic-element">
+        <i class="fas fa-rocket" style="font-size: 3rem; color: rgba(255, 106, 0, 0.3);"></i>
+    </div>
+    <div class="cosmic-element">
+        <i class="fas fa-satellite" style="font-size: 2.5rem; color: rgba(255, 180, 0, 0.3);"></i>
+    </div>
+    <div class="cosmic-element">
+        <i class="fas fa-globe" style="font-size: 2.8rem; color: rgba(255, 106, 0, 0.3);"></i>
+    </div>
+
+    <div class="main-container">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <h2><i class="fas fa-map"></i> Learning Modules</h2>
+        {% for module_name, subtopics in modules.items() %}
+        <div class="module">
+            <div class="module-header">
+                <button onclick="toggleSubtopics('module{{ loop.index }}')">
+                    <i class="fas fa-book-open"></i> {{ module_name }}
+                </button>
+                <button class="go-button" onclick="window.location.href='/{{ loop.index }}'">
+                    <i class="fas fa-rocket"></i>
+                </button>
+            </div>
+            <ul id="module{{ loop.index }}" class="subtopics">
+                {% for subtopic in subtopics %}
+                <li>{{ subtopic }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Main content -->
+    <div class="content">
+        {% for i in range(module|length) %}
+        <div class="lesson-section">
+            <h1><i class="fas fa-star"></i> {{ module[i] }}</h1>
+            <p>{{ text[i] }}</p>
+            <div class="video-container">
+                <p><a href="{{ links[i][0] }}" target="_blank">Video Link</a></p>
+                        <iframe src="https://www.youtube.com/embed/{{ links[i][0].split('v=')[1] }}" frameborder="0" allowfullscreen></iframe>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Floating buttons -->
+    <div class="floating-buttons">
+        <button class="quiz-button" onclick="loadQuiz()" title="Take Quiz">
+            <i class="fas fa-question-circle"></i>
+        </button>
+        <button class="chat-button" onclick="window.location.href='/c'" title="AI Chat">
+            <i class="fas fa-comments"></i>
+        </button>
+    </div>
+
+    <!-- Popup -->
+    <div class="popup-overlay">
+        <div class="popup">
+            <button class="close-button" onclick="closePopup()">
+                <i class="fas fa-times"></i>
+            </button>
+            <div id="quiz-content">
+                <div class="loading-quiz">
+                    <div class="spinner"></div>
+                    <p>Preparing your cosmic quiz...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Enhanced canvas animation with stars
+        const canvas = document.getElementById('space');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Create stars with different sizes and twinkle effects
+        const stars = Array.from({ length: 250 }, () => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            radius: Math.random() * 2.5 + 0.5,
+            speed: Math.random() * 0.8 + 0.2,
+            opacity: Math.random(),
+            twinkleSpeed: Math.random() * 0.02 + 0.01
+        }));
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw stars with twinkle effect
+            stars.forEach(star => {
+                ctx.save();
+                ctx.globalAlpha = star.opacity;
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                // Move stars
+                star.y += star.speed;
+                if (star.y > canvas.height) {
+                    star.y = -star.radius;
+                    star.x = Math.random() * canvas.width;
+                }
+
+                // Twinkle effect
+                star.opacity += star.twinkleSpeed;
+                if (star.opacity >= 1 || star.opacity <= 0.1) {
+                    star.twinkleSpeed = -star.twinkleSpeed;
+                }
+            });
+
+            requestAnimationFrame(draw);
+        }
+
+        draw();
+
+        // Module functionality
+        function toggleSubtopics(moduleId) {
+            const element = document.getElementById(moduleId);
+            if (element.style.display === "none" || element.style.display === "") {
+                element.style.display = "block";
+            } else {
+                element.style.display = "none";
+            }
+        }
+
+        // Popup functionality
+        function openPopup() {
+            document.querySelector('.popup-overlay').style.display = 'flex';
+        }
+
+        function closePopup() {
+            document.querySelector('.popup-overlay').style.display = 'none';
+        }
+
+        function loadQuiz() {
+            openPopup();
+            // Reset quiz content to loading state
+            document.getElementById('quiz-content').innerHTML = `
+                <div class="loading-quiz">
+                    <div class="spinner"></div>
+                    <p>Preparing your cosmic quiz...</p>
+                </div>
+            `;
+            
+            // Fetch quiz content dynamically
+            fetch('/q1')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('quiz-content').innerHTML = data;
+                })
+                .catch(error => {
+                    document.getElementById('quiz-content').innerHTML = `
+                        <div style="text-align: center; padding: 20px;">
+                            <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: #ff6a00; margin-bottom: 15px;"></i>
+                            <p>Oops! Unable to load the quiz right now.</p>
+                            <p style="font-size: 0.9rem; color: #ccc;">Please try again later.</p>
+                        </div>
+                    `;
+                    console.error('Error fetching quiz:', error);
+                });
+        }
+
+        // Smooth scroll for better UX
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add smooth scrolling to all internal links
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({
+                            behavior: 'smooth'
+                        });
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
