@@ -11,7 +11,8 @@ topic or question, and the app generates a **structured learning path**, **modul
 - **Smart input detection** – automatically figures out whether you typed a *topic* or a *question*.
 - **Learning paths** – enter a topic (e.g. *"Data Structures"*) and get a 6-module curriculum,
   each with 5 subtopics, ordered from basics to advanced.
-- **Module pages** – each module generates detailed explanations plus relevant YouTube video links.
+- **Module pages** – each module generates detailed explanations plus a relevant, embedded
+  YouTube tutorial video for every subtopic (found via YouTube search).
 - **Step-by-step answers** – ask a question and get a clear, tutor-style breakdown (restate →
   key concepts → approach → apply → summary).
 - **Auto-generated quizzes** – 5-question multiple-choice quizzes per module with scoring.

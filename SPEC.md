@@ -75,8 +75,10 @@ providing quizzes to test understanding.
 
 ### 5.3 Module Content (per module)
 - For each subtopic in a module, Gemini generates a ~300-word explanatory paragraph.
-- For each subtopic, a relevant **YouTube tutorial link** is fetched using Gemini with Google
-  Search grounding; if that fails, the system falls back to a YouTube search link.
+- For each subtopic, a relevant **YouTube tutorial video** is found by searching YouTube
+  directly (no AI): the app queries YouTube's search results, then verifies each candidate is
+  actually embeddable (via YouTube's public oEmbed endpoint) and embeds the first valid one.
+  This guarantees a real, playable video per subtopic and uses no Gemini quota.
 - Content is generated on first visit and cached in memory so repeat visits are instant.
 
 ### 5.4 Question Answering (question)
@@ -126,8 +128,9 @@ providing quizzes to test understanding.
 
 - **Framework:** Flask (single `app.py`), Jinja2 templates for the frontend.
 - **AI layer:** `google-genai` SDK calling the Gemini API.
-  - Text generation model: `gemini-flash-latest`.
-  - YouTube discovery: `gemini-flash-lite-latest` with the Google Search tool.
+  - Text generation model: `gemini-flash-latest` (learning paths, module content, answers, quizzes, chat).
+- **Video discovery:** direct YouTube search over HTTP (`requests`) + oEmbed embeddability check.
+  No AI and no API key involved.
 - **State:** in-memory Python globals.
   - `modules_dict` — the current learning path.
   - `entry1..6`, `txt1..6`, `link1..6` — cache flags and cached content per module.
@@ -136,11 +139,11 @@ providing quizzes to test understanding.
 ### Component diagram
 ```
 Browser ──HTTP──► Flask (app.py) ──► Gemini API (google-genai)
-                     │
+                     │                     └─ text generation
                      ├─ classify_prompt()        (intent detection)
                      ├─ generate_learning_path()  (topic → modules)
                      ├─ generate_module_content()  (subtopic → paragraph)
-                     ├─ get_youtube_urls_*()       (subtopic → video link)
+                     ├─ get_youtube_urls_from_gemini_api()  (subtopic → embedded video, via YouTube search)
                      ├─ generate_quiz()            (module → quiz + scoring)
                      └─ gemini_api_response()       (shared text call)
 ```
@@ -179,7 +182,7 @@ The core in-memory structure is `modules_dict`:
 
 Per-module cached content:
 - `txtN` — list of generated paragraphs (one per subtopic).
-- `linkN` — list of YouTube links (one per subtopic).
+- `linkN` — list of YouTube video IDs (one per subtopic) used to embed the video.
 - `entryN` — flag marking whether module N has already been generated.
 
 ---
@@ -187,8 +190,9 @@ Per-module cached content:
 ## 10. Constraints & Assumptions
 
 - **API key required** — the app cannot function without a valid `GEMINI_API_KEY`.
-- **Free-tier quota** — Gemini's free tier limits daily requests. A full module page uses ~6
-  requests, so heavy use can exhaust the daily allowance (resets at midnight Pacific Time).
+- **Free-tier quota** — Gemini's free tier limits daily requests. A full module page uses ~5
+  requests (one per subtopic paragraph; videos no longer use Gemini), so heavy use can exhaust
+  the daily allowance (resets at midnight Pacific Time).
 - **In-memory state** — the learning path is lost when the server restarts, and is shared globally
   (not per-user), so the app is intended for single-user / demo use.
 - **AI variability** — responses may vary in format; parsers include fallbacks but are not perfect.
@@ -199,7 +203,8 @@ Per-module cached content:
 
 - No persistence — refreshing after a restart requires regenerating the learning path.
 - Global state means concurrent users would share the same learning path.
-- YouTube links depend on AI/search results and may occasionally be generic fallbacks.
+- Video discovery reads YouTube's public search results page, which is not an official API;
+  if YouTube changes that page's structure, the video feature may need a small update.
 - Quiz parsing relies on the AI returning a specific structure.
 
 ---
