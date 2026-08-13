@@ -670,8 +670,12 @@
             <h1><i class="fas fa-star"></i> {{ module[i] }}</h1>
             <p>{{ text[i] }}</p>
             <div class="video-container">
-                <p><a href="{{ links[i][0] }}" target="_blank">Video Link</a></p>
-                        <iframe src="https://www.youtube.com/embed/{{ links[i][0].split('v=')[1] }}" frameborder="0" allowfullscreen></iframe>
+                {% if links[i][0] %}
+                <iframe src="https://www.youtube-nocookie.com/embed/{{ links[i][0] }}" frameborder="0" allowfullscreen></iframe>
+                <p><a href="https://www.youtube.com/watch?v={{ links[i][0] }}" target="_blank">Watch on YouTube</a></p>
+                {% else %}
+                <p><a href="https://www.youtube.com/results?search_query={{ module[i] | urlencode }}+tutorial" target="_blank">🔍 Find a video on YouTube</a></p>
+                {% endif %}
             </div>
         </div>
         {% endfor %}

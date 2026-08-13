@@ -19,64 +19,56 @@ import urllib.parse
 # Load environment variables
 load_dotenv()
 
-def get_youtube_urls_from_gemini_api(topics):
-    client = genai.Client(
-        api_key=GEMINI_API_KEY,
-    )
 
-    model = "gemini-flash-lite-latest"
-    
-    # Construct the prompt with the actual topics
-    topic_prompts = ""
-    for i, topic in enumerate(topics):
-        topic_prompts += f"[Topic {i+1} Name]: {topic}\n"
-
-    contents = [
-        types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text=f"""For each of the following {len(topics)} topics, please find one highly-rated YouTube video tutorial and provide only the direct, clickable YouTube URL for each video. Do not include any other text, titles, or descriptions, and no search redirects. The URL should start with 'https://www.youtube.com/watch?v='.\n\nThe {len(topics)} topics are:\n\n{topic_prompts}\n\nUse google search tool to find the videos"""),
-            ],
-        ),
-    ]
-    tools = [
-        types.Tool(googleSearch=types.GoogleSearch(
-        )),
-    ]
-    generate_content_config = types.GenerateContentConfig(
-        thinking_config = types.ThinkingConfig(
-            thinking_budget=0,
-        ),
-        tools=tools,
-    )
-
-    youtube_urls = []
-    response_text = ""
+def _is_embeddable(video_id):
+    """Return True if the video exists and can be embedded on other sites.
+    Uses YouTube's public oEmbed endpoint (no API key required)."""
     try:
-        for chunk in client.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=generate_content_config,
-        ):
-            if chunk.text is not None:
-                response_text += chunk.text
-        print(response_text)
-        # Parse the response to extract URLs
-        for line in response_text.split('\n'):
-            match = re.search(r"https://www.youtube.com/watch\?v=[a-zA-Z0-9_-]+", line)
-            if match:
-                youtube_urls.append([match.group(0)])  # Wrap in a list to match expected format
-    except Exception as e:
-        # Don't let an API hiccup (e.g. rate limit) crash the whole module page.
-        print(f"Error fetching YouTube URLs from Gemini: {e}")
+        oembed = ("https://www.youtube.com/oembed?url="
+                  f"https://www.youtube.com/watch?v={video_id}&format=json")
+        return requests.get(oembed, timeout=8).status_code == 200
+    except Exception:
+        return False
 
-    # Ensure there's one link per topic so the template always has something to show.
-    # Fall back to a YouTube search link for any topic we couldn't resolve.
-    while len(youtube_urls) < len(topics):
-        topic = topics[len(youtube_urls)]
-        search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(str(topic) + ' tutorial')}"
-        youtube_urls.append([search_url])
-    return youtube_urls
+
+def get_youtube_urls_from_gemini_api(topics):
+    """Find one real, embeddable YouTube video per topic.
+
+    Searches YouTube directly and picks the first search result that is actually
+    embeddable, so every topic gets a playable video (no AI guessing, no API key).
+    Returns a list of [video_id] (empty string if nothing suitable was found),
+    which the module template embeds as an iframe.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    results = []
+    for topic in topics:
+        video_id = ""
+        try:
+            query = urllib.parse.quote_plus(f"{topic} tutorial")
+            search_url = f"https://www.youtube.com/results?search_query={query}"
+            html = requests.get(search_url, headers=headers, timeout=15).text
+            # Candidate video IDs in the order YouTube returned them (most relevant first)
+            candidates = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+            # De-duplicate while preserving order
+            seen = set()
+            candidates = [c for c in candidates if not (c in seen or seen.add(c))]
+            # Pick the first result that is embeddable (check a few, then give up)
+            for cand in candidates[:5]:
+                if _is_embeddable(cand):
+                    video_id = cand
+                    break
+            # If none verified as embeddable, fall back to the top result anyway
+            if not video_id and candidates:
+                video_id = candidates[0]
+            print(f"Video for '{topic}': {video_id or 'NONE'}")
+        except Exception as e:
+            print(f"Error finding YouTube video for '{topic}': {e}")
+        results.append([video_id])
+    return results
+
 
 # Global variables
 global entry1, entry2, entry3, entry4, entry5, entry6, entry7
@@ -91,6 +83,7 @@ entry6 = 0
 modules_dict = {}
 app = Flask(__name__)
 
+
 def require_modules(f):
     """Redirect to home if no learning path has been generated yet,
     instead of crashing with an IndexError on an empty modules_dict."""
@@ -101,13 +94,16 @@ def require_modules(f):
         return f(*args, **kwargs)
     return wrapper
 
+
 # Set up the new Generative AI client
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Read from environment / .env file
+# Read from environment / .env file
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set")
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 model_name = "gemini-flash-latest"  # Updated model name
+
 
 def gemini_api_response(user_input):
     """Generate content using the new Google GenAI library"""
@@ -121,36 +117,40 @@ def gemini_api_response(user_input):
                 ],
             ),
         ]
-        
+
         # Configure generation
         generate_content_config = types.GenerateContentConfig(
             temperature=0.7,
             max_output_tokens=4000
         )
-        
+
         # Generate response
         response = gemini_client.models.generate_content(
             model=model_name,
             contents=contents,
             config=generate_content_config,
         )
-        
+
         return response.text
     except Exception as e:
         print(f"Error generating content: {e}")
         return "Sorry, I encountered an error while generating the response."
 
+
 @app.route("/", methods=["GET"])
 def home():
     return render_template("index.html")
+
 
 @app.route("/about")
 def about():
     return render_template("About.html")
 
+
 @app.route("/contact")
 def contact():
     return render_template("Contact.html")
+
 
 def classify_prompt(prompt):
     """
@@ -165,9 +165,10 @@ def classify_prompt(prompt):
         return "question"
     return "topic"
 
+
 def generate_learning_path(search_query):
     global modules_dict
-    
+
     ip = f"""Create a structured learning path for {search_query} with exactly 6 modules. Format your response EXACTLY like this:
 
 **Module 1: [Module Name]**
@@ -186,25 +187,26 @@ def generate_learning_path(search_query):
 
 Continue this pattern for all 6 modules. Start with basics and progress to advanced topics. Only provide module names and subtopics, no additional text."""
 
-    response_text = gemini_api_response(ip)
+    response_text = gemini_api_response(ip) or ""
     print("Raw response:")
     print(response_text)
-    
+
     # Initialize the dictionary to store modules and their subtopics
     modules_dict.clear()
 
     # Split the content into modules using the **Module pattern
-    modules = response_text.split('**Module')[1:]  # Skip the first empty element
+    # Skip the first empty element
+    modules = response_text.split('**Module')[1:]
     print("++++++MODULES++++++")
     print(f"Found {len(modules)} modules")
-    
+
     for i, module in enumerate(modules):
         print(f"++++++PROCESSING MODULE {i+1}++++++")
         print(f"Module content: {module[:200]}...")  # Show first 200 chars
-        
+
         # Extract the module name and subtopics
         lines = module.strip().split('\n')
-        
+
         # Get module name (first line, remove the trailing **)
         module_name_line = lines[0].strip()
         if '**' in module_name_line:
@@ -213,86 +215,88 @@ Continue this pattern for all 6 modules. Start with basics and progress to advan
             module_name = re.sub(r'^\d+:\s*', '', module_name).strip()
         else:
             continue  # Skip if we can't find a proper module name
-            
+
         print(f"Module name: {module_name}")
-        
+
         # Find subtopics (lines that start with numbers)
         subtopics = []
         for line in lines[1:]:
             line_stripped = line.strip()
-            
+
             # Look for numbered items (1., 2., etc.)
             if re.match(r'^\d+\.', line_stripped):
                 # Remove the number and clean up
                 clean_line = re.sub(r'^\d+\.\s*', '', line_stripped).strip()
                 if clean_line and clean_line not in subtopics:
                     subtopics.append(clean_line)
-                    
+
                 if len(subtopics) >= 5:  # Limit to 5 subtopics
                     break
-        
+
         print(f"Subtopics found: {subtopics}")
         print(f"Number of subtopics: {len(subtopics)}")
-        
+
         # Add module and subtopics to the dictionary if we have both
-        if module_name and len(subtopics) >= 3:  # At least 3 subtopics to be valid
+        # At least 3 subtopics to be valid
+        if module_name and len(subtopics) >= 3:
             modules_dict[f"Module {i+1}: {module_name}"] = subtopics
             print(f"Added to dictionary: Module {i+1}: {module_name}")
         else:
             print(f"Skipped module due to insufficient data")
-    
+
     print("++++++FINAL MODULES DICT++++++")
     print(modules_dict)
-    
+
     # If parsing failed, try alternative parsing method
     if not modules_dict:
         print("Primary parsing failed, trying alternative method...")
         modules_dict = alternative_parse_method(response_text)
-    
+
     return render_template("result.html", modules=modules_dict)
+
 
 def alternative_parse_method(response_text):
     """Alternative parsing method for different response formats"""
     alt_modules_dict = {}
-    
+
     # Look for patterns like "1. Python Basics" followed by subtopics
     lines = response_text.split('\n')
     current_module = None
     current_subtopics = []
     module_counter = 1
-    
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
-            
+
         # Check if this is a main module (numbered item without indentation)
         if re.match(r'^\d+\.\s+[A-Z]', line) and not line.startswith('    '):
             # Save previous module if exists
             if current_module and current_subtopics:
                 alt_modules_dict[f"Module {module_counter}: {current_module}"] = current_subtopics[:5]
                 module_counter += 1
-            
+
             # Start new module
             current_module = re.sub(r'^\d+\.\s*', '', line).strip()
             current_subtopics = []
-            
+
         # Check if this is a subtopic (starts with * or is indented)
         elif line.startswith('*') or line.startswith('    *') or line.startswith('-'):
             subtopic = re.sub(r'^[\s\*\-]+', '', line).strip()
             if subtopic and len(current_subtopics) < 5:
                 current_subtopics.append(subtopic)
-    
+
     # Don't forget the last module
     if current_module and current_subtopics:
         alt_modules_dict[f"Module {module_counter}: {current_module}"] = current_subtopics[:5]
-    
+
     print("Alternative parsing result:")
     print(alt_modules_dict)
     return alt_modules_dict
 # def generate_learning_path(search_query):
 #     global modules_dict
-    
+
 #     ip = f"Remember, tell me exactly what I ask. Don't give me any additional information. Give me exactly 6 main topics for {search_query}. The 6 main topics should be divided into modules, with the 1st module covering the basics and introduction. The topics should become more advanced as we progress to the next modules. Remember, under each module, you should give me exactly 5 subtopics for that particular module. The response you provide must be structured: first, list all 6 modules, then list all the subtopics. Remember, just give me the names of the topics and subtopics, and don't provide any additional information."
 
 #     response_text = gemini_api_response(ip)
@@ -328,20 +332,22 @@ def alternative_parse_method(response_text):
 #         # Add module and subtopics to the dictionary
 #         if module_name and subtopics:
 #             modules_dict[module_name] = subtopics
-    
+
 #     # Clean up any malformed keys
 #     keys_to_remove = [key for key in modules_dict.keys() if len(key) < 5]
 #     for key in keys_to_remove:
 #         del modules_dict[key]
 #     print(modules_dict)
 #     return render_template("results3.html", modules=modules_dict)
+
+
 def get_youtube_urls_with_ai(topics, api_key=None, max_results=1):
     """
     Use Gemini AI to find relevant YouTube video IDs for any topic
     This leverages AI's knowledge of popular educational videos
     """
     results = []
-    
+
     for topic in topics:
         try:
             prompt = f"""Find the most popular and educational YouTube video for the topic: "{topic}"
@@ -356,10 +362,10 @@ def get_youtube_urls_with_ai(topics, api_key=None, max_results=1):
             
             Topic: {topic}
             Video ID:"""
-            
+
             response = gemini_api_response(prompt)
-            video_id = response.strip()
-            
+            video_id = response.strip() if response else ""
+
             # Validate video ID format (11 characters, alphanumeric + _ -)
             if re.match(r'^[a-zA-Z0-9_-]{11}$', video_id):
                 embed_url = f"https://www.youtube.com/embed/{video_id}"
@@ -368,45 +374,48 @@ def get_youtube_urls_with_ai(topics, api_key=None, max_results=1):
             else:
                 embed_url = "https://www.youtube.com/embed/dQw4w9WgXcQ"
                 results.append([embed_url])
-                print(f"AI couldn't find specific video for '{topic}', using fallback")
-                
+                print(
+                    f"AI couldn't find specific video for '{topic}', using fallback")
+
         except Exception as e:
             print(f"Error getting AI recommendation for '{topic}': {e}")
             embed_url = "https://www.youtube.com/embed/dQw4w9WgXcQ"
             results.append([embed_url])
-    
+
     return results
 # Solution 2: Combination of search methods with better retry logic
+
+
 def get_youtube_urls(topics, api_key=None, max_results=1):
     """
     Robust method that tries multiple approaches and has better rate limiting
     """
     results = []
-    
+
     # Session for connection pooling
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     })
-    
+
     for i, topic in enumerate(topics):
         video_found = False
-        
+
         # Method 1: Try Bing search (less restrictive than Google/DDG)
         try:
             if not video_found:
                 delay = random.uniform(1, 3)
                 time.sleep(delay)
-                
+
                 query = f"site:youtube.com {topic} tutorial"
                 bing_url = f"https://www.bing.com/search?q={urllib.parse.quote_plus(query)}"
-                
+
                 response = session.get(bing_url, timeout=10)
                 if response.status_code == 200:
                     # Extract YouTube URLs from Bing results
                     youtube_pattern = r'https://www\.youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})'
                     video_ids = re.findall(youtube_pattern, response.text)
-                    
+
                     if video_ids:
                         video_id = video_ids[0]  # Take first result
                         embed_url = f"https://www.youtube.com/embed/{video_id}"
@@ -415,30 +424,31 @@ def get_youtube_urls(topics, api_key=None, max_results=1):
                         video_found = True
         except:
             pass
-        
+
         # Method 2: Try StartPage search (Google proxy)
         try:
             if not video_found:
                 delay = random.uniform(1, 3)
                 time.sleep(delay)
-                
+
                 query = f"site:youtube.com {topic} tutorial"
                 startpage_url = f"https://www.startpage.com/sp/search?query={urllib.parse.quote_plus(query)}"
-                
+
                 response = session.get(startpage_url, timeout=10)
                 if response.status_code == 200:
                     youtube_pattern = r'https://www\.youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})'
                     video_ids = re.findall(youtube_pattern, response.text)
-                    
+
                     if video_ids:
                         video_id = video_ids[0]
                         embed_url = f"https://www.youtube.com/embed/{video_id}"
                         results.append([embed_url])
-                        print(f"StartPage found video for '{topic}': {video_id}")
+                        print(
+                            f"StartPage found video for '{topic}': {video_id}")
                         video_found = True
         except:
             pass
-            
+
         # Method 3: Use AI as fallback
         try:
             if not video_found:
@@ -448,13 +458,14 @@ def get_youtube_urls(topics, api_key=None, max_results=1):
                 video_found = True
         except:
             pass
-            
+
         # Final fallback
         if not video_found:
             results.append(["https://www.youtube.com/embed/dQw4w9WgXcQ"])
             print(f"All methods failed for '{topic}', using default fallback")
-    
+
     return results
+
 
 def generate_module_content(module_topics):
     """Generate content for module topics using the new API"""
@@ -465,106 +476,136 @@ def generate_module_content(module_topics):
         content.append(response)
     return content
 
+
 @app.route("/1")
 @require_modules
 def module_1():
     global entry1, txt1, link1
-    
+
     if entry1 == 0:
-        txt1 = generate_module_content(modules_dict[list(modules_dict.keys())[0]])
-        link1 = get_youtube_urls_from_gemini_api(modules_dict[list(modules_dict.keys())[0]])
+        txt1 = generate_module_content(
+            modules_dict[list(modules_dict.keys())[0]])
+        link1 = get_youtube_urls_from_gemini_api(
+            modules_dict[list(modules_dict.keys())[0]])
         entry1 = 1
         current_module_data = modules_dict[list(modules_dict.keys())[0]]
         return render_template("modules/module1.html", modules=modules_dict, module=current_module_data, text=txt1, links=link1)
     else:
-        return render_template("modules/module1.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[0]], 
-                             text=txt1, links=link1)
+        return render_template("modules/module1.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[0]],
+                               text=txt1, links=link1)
+
 
 @app.route("/2")
 @require_modules
 def module_2():
     global entry2, txt2, link2
-    
+
     if entry2 == 0:
-        txt2 = generate_module_content(modules_dict[list(modules_dict.keys())[1]])
-        link2 = get_youtube_urls_from_gemini_api(modules_dict[list(modules_dict.keys())[1]])
+        txt2 = generate_module_content(
+            modules_dict[list(modules_dict.keys())[1]])
+        link2 = get_youtube_urls_from_gemini_api(
+            modules_dict[list(modules_dict.keys())[1]])
         entry2 = 1
-        return render_template("modules/module2.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[1]], 
-                             text=txt2, links=link2)
+        return render_template("modules/module2.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[1]],
+                               text=txt2, links=link2)
     else:
-        return render_template("modules/module2.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[1]], 
-                             text=txt2, links=link2)
+        return render_template("modules/module2.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[1]],
+                               text=txt2, links=link2)
+
 
 @app.route("/3")
 @require_modules
 def module_3():
     global entry3, txt3, link3
-    
+
     if entry3 == 0:
-        txt3 = generate_module_content(modules_dict[list(modules_dict.keys())[2]])
-        link3 = get_youtube_urls_from_gemini_api(modules_dict[list(modules_dict.keys())[2]])
+        txt3 = generate_module_content(
+            modules_dict[list(modules_dict.keys())[2]])
+        link3 = get_youtube_urls_from_gemini_api(
+            modules_dict[list(modules_dict.keys())[2]])
         entry3 = 1
-        return render_template("modules/module3.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[2]], 
-                             text=txt3, links=link3)
+        return render_template("modules/module3.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[2]],
+                               text=txt3, links=link3)
     else:
-        return render_template("modules/module3.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[2]], 
-                             text=txt3, links=link3)
+        return render_template("modules/module3.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[2]],
+                               text=txt3, links=link3)
+
 
 @app.route("/4")
 @require_modules
 def module_4():
     global entry4, txt4, link4
-    
+
     if entry4 == 0:
-        txt4 = generate_module_content(modules_dict[list(modules_dict.keys())[3]])
-        link4 = get_youtube_urls_from_gemini_api(modules_dict[list(modules_dict.keys())[3]])
+        txt4 = generate_module_content(
+            modules_dict[list(modules_dict.keys())[3]])
+        link4 = get_youtube_urls_from_gemini_api(
+            modules_dict[list(modules_dict.keys())[3]])
         entry4 = 1
-        return render_template("modules/module4.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[3]], 
-                             text=txt4, links=link4)
+        return render_template("modules/module4.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[3]],
+                               text=txt4, links=link4)
     else:
-        return render_template("modules/module4.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[3]], 
-                             text=txt4, links=link4)
+        return render_template("modules/module4.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[3]],
+                               text=txt4, links=link4)
+
 
 @app.route("/5")
 @require_modules
 def module_5():
     global entry5, txt5, link5
-    
+
     if entry5 == 0:
-        txt5 = generate_module_content(modules_dict[list(modules_dict.keys())[4]])
-        link5 = get_youtube_urls_from_gemini_api(modules_dict[list(modules_dict.keys())[4]])
+        txt5 = generate_module_content(
+            modules_dict[list(modules_dict.keys())[4]])
+        link5 = get_youtube_urls_from_gemini_api(
+            modules_dict[list(modules_dict.keys())[4]])
         entry5 = 1
-        return render_template("modules/module5.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[4]], 
-                             text=txt5, links=link5)
+        return render_template("modules/module5.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[4]],
+                               text=txt5, links=link5)
     else:
-        return render_template("modules/module5.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[4]], 
-                             text=txt5, links=link5)
+        return render_template("modules/module5.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[4]],
+                               text=txt5, links=link5)
+
 
 @app.route("/6")
 @require_modules
 def module_6():
     global entry6, txt6, link6
-    
+
     if entry6 == 0:
-        txt6 = generate_module_content(modules_dict[list(modules_dict.keys())[5]])
-        link6 = get_youtube_urls_from_gemini_api(modules_dict[list(modules_dict.keys())[5]])
+        txt6 = generate_module_content(
+            modules_dict[list(modules_dict.keys())[5]])
+        link6 = get_youtube_urls_from_gemini_api(
+            modules_dict[list(modules_dict.keys())[5]])
         entry6 = 1
-        return render_template("modules/module6.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[5]], 
-                             text=txt6, links=link6)
+        return render_template("modules/module6.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[5]],
+                               text=txt6, links=link6)
     else:
-        return render_template("modules/module6.html", modules=modules_dict, 
-                             module=modules_dict[list(modules_dict.keys())[5]], 
-                             text=txt6, links=link6)
+        return render_template("modules/module6.html", modules=modules_dict,
+                               module=modules_dict[list(
+                                   modules_dict.keys())[5]],
+                               text=txt6, links=link6)
+
 
 def generate_prompt(user_input, input_type):
     """
@@ -574,25 +615,27 @@ def generate_prompt(user_input, input_type):
         return generate_learning_path(user_input)
     elif input_type == "question":
         prompt = (f"Act as a knowledgeable tutor. Answer the following question: '{user_input}'"
-                "Please break down your answer into distinct, easy-to-follow steps. Each step should be in its own block for clarity. The structure should be:"
-                "1. **Step 1: Restate the Problem** " 
-                "Start by restating the question in your own words. Clarify any important details to ensure the question is well understood."
-                "2. **Step 2: Identify Key Concepts** " 
-                "Outline the key concepts or principles that are necessary to answer this question. If applicable, provide any formulas, theories, or foundational ideas."
-                "3. **Step 3: Approach the Solution**  "
-                "Walk through the process or methodology needed to solve the problem. Be as clear as possible, breaking down each action in logical order."
-                "4. **Step 4: Apply the Concepts** " 
-                'Demonstrate how to apply the key concepts to the problem at hand. Use examples, numbers, or explanations to show how the theory is applied.'
-               " 5. **Step 5: Summarize the Solution** " 
-                "Recap the solution, including key takeaways and any final thoughts. If there are any additional points or caveats, mention them here."
-                "'Ensure each step is clear and easy to follow. Use formatting or bullet points for additional clarity. Avoid using overly technical language unless it necessary for the explanation.")
-        
+                  "Please break down your answer into distinct, easy-to-follow steps. Each step should be in its own block for clarity. The structure should be:"
+                  "1. **Step 1: Restate the Problem** "
+                  "Start by restating the question in your own words. Clarify any important details to ensure the question is well understood."
+                  "2. **Step 2: Identify Key Concepts** "
+                  "Outline the key concepts or principles that are necessary to answer this question. If applicable, provide any formulas, theories, or foundational ideas."
+                  "3. **Step 3: Approach the Solution**  "
+                  "Walk through the process or methodology needed to solve the problem. Be as clear as possible, breaking down each action in logical order."
+                  "4. **Step 4: Apply the Concepts** "
+                  'Demonstrate how to apply the key concepts to the problem at hand. Use examples, numbers, or explanations to show how the theory is applied.'
+                  " 5. **Step 5: Summarize the Solution** "
+                  "Recap the solution, including key takeaways and any final thoughts. If there are any additional points or caveats, mention them here."
+                  "'Ensure each step is clear and easy to follow. Use formatting or bullet points for additional clarity. Avoid using overly technical language unless it necessary for the explanation.")
+
         response_text = gemini_api_response(prompt)
-        response_text = markdown.markdown(response_text)
+        if response_text:
+            response_text = markdown.markdown(response_text)
         return render_template("response.html", response_text=response_text)
     else:
         # Handle invalid input type
         return render_template("result.html", response_text="Invalid input type. Please provide either 'topic' or 'question'.")
+
 
 @app.route("/generate", methods=["POST"])
 def process_input():
@@ -603,7 +646,9 @@ def process_input():
     modules_dict.clear()
     user_input = request.form.get("search_query")  # User's input from the form
     input_type = classify_prompt(user_input)    # Classify as topic or question
-    return generate_prompt(user_input, input_type)  # Generate appropriate prompt
+    # Generate appropriate prompt
+    return generate_prompt(user_input, input_type)
+
 
 def render_quiz_template(quiz_q, score=None):
     quiz_html = ""
@@ -621,14 +666,20 @@ def render_quiz_template(quiz_q, score=None):
     {result}
     """
 
+
 def generate_quiz(module_index, route_name):
     """Generate quiz for a specific module"""
     try:
         prompt = f"do exactly what i say don't do any thing extra give me a quiz on topics{str(modules_dict[list(modules_dict.keys())[module_index]])} it should have exactly 5 questions remember exactly 5 questions and 4 options for each and hear me this is the main part all questions and options you give me must be in the form of a dictionary named as quiz_q all the questions must be the keys and options must be in the form of lists and correct answers must be returned separately in a list named as quiz_a"
-        
+
         response_text = gemini_api_response(prompt)
-        response_text = response_text.replace("\n", " ").replace("     ", "")
-        
+        # Ensure response_text is a string before calling replace
+        if response_text is None:
+            response_text = ""
+        else:
+            response_text = str(response_text).replace(
+                "\n", " ").replace("     ", "")
+
         # Parse the response to extract quiz_q and quiz_a
         if "quiz_q = " in response_text and "quiz_a = " in response_text:
             response_text1 = response_text.split("quiz_q = ")[1]
@@ -637,9 +688,10 @@ def generate_quiz(module_index, route_name):
             quiz_a = eval(dic[1].replace("```", ""))
         else:
             # Fallback: create a simple quiz if parsing fails
-            quiz_q = {"What is the main topic of this module?": ["Option A", "Option B", "Option C", "Option D"]}
+            quiz_q = {"What is the main topic of this module?": [
+                "Option A", "Option B", "Option C", "Option D"]}
             quiz_a = ["Option A"]
-        
+
         if request.method == 'POST':
             user_answers = request.form
             score = 0
@@ -647,42 +699,51 @@ def generate_quiz(module_index, route_name):
                 if user_answers.get(f"question-{i}") == quiz_a[i]:
                     score += 1
             return render_template_string(render_quiz_template(quiz_q, score))
-        
+
         return render_template_string(render_quiz_template(quiz_q))
-    
+
     except Exception as e:
         print(f"Error generating quiz: {e}")
         # Return a simple fallback quiz
-        fallback_quiz = {"Sample question about the module topics?": ["Option A", "Option B", "Option C", "Option D"]}
+        fallback_quiz = {"Sample question about the module topics?": [
+            "Option A", "Option B", "Option C", "Option D"]}
         return render_template_string(render_quiz_template(fallback_quiz))
+
 
 @app.route("/q1", methods=['GET', 'POST'])
 def quiz_module1():
     return generate_quiz(0, "q1")
 
+
 @app.route("/q2", methods=['GET', 'POST'])
 def quiz_module2():
     return generate_quiz(1, "q2")
+
 
 @app.route("/q3", methods=['GET', 'POST'])
 def quiz_module3():
     return generate_quiz(2, "q3")
 
+
 @app.route("/q4", methods=['GET', 'POST'])
 def quiz_module4():
     return generate_quiz(3, "q4")
+
 
 @app.route("/q5", methods=['GET', 'POST'])
 def quiz_module5():
     return generate_quiz(4, "q5")
 
+
 @app.route("/q6", methods=['GET', 'POST'])
 def quiz_module6():
     return generate_quiz(5, "q6")
 
+
 @app.route("/c")
 def index():
     return render_template("chat.html")
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -693,6 +754,7 @@ def chat():
     # Call the new Gemini API
     bot_response = gemini_api_response(user_message)
     return jsonify({"response": bot_response})
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
