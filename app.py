@@ -753,6 +753,9 @@ def chat():
 
     # Call the new Gemini API
     bot_response = gemini_api_response(user_message)
+    if bot_response:
+        bot_response = markdown.markdown(
+            bot_response, extensions=['fenced_code', 'tables', 'toc'])
     return jsonify({"response": bot_response})
 
 

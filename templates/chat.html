@@ -129,6 +129,68 @@
             background: rgba(255, 180, 0, 0.2);
         }
 
+        .bot-message h1,
+        .bot-message h2,
+        .bot-message h3,
+        .bot-message h4 {
+            margin: 12px 0 6px;
+            color: #fff;
+        }
+
+        .bot-message p {
+            margin: 8px 0;
+            line-height: 1.5;
+        }
+
+        .bot-message ul,
+        .bot-message ol {
+            margin: 8px 0;
+            padding-left: 24px;
+        }
+
+        .bot-message li {
+            margin: 4px 0;
+        }
+
+        .bot-message hr {
+            border: none;
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
+            margin: 12px 0;
+        }
+
+        .bot-message code {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .bot-message pre {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+
+        .bot-message pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .bot-message table {
+            border-collapse: collapse;
+            margin: 8px 0;
+            width: 100%;
+        }
+
+        .bot-message th,
+        .bot-message td {
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 6px 10px;
+            text-align: left;
+        }
+
         @media (max-width: 768px) {
             nav ul {
                 flex-direction: column;
@@ -197,6 +259,12 @@
 
         draw();
 
+        function escapeHtml(text) {
+            const div = document.createElement("div");
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         async function sendMessage() {
             const userInput = document.getElementById("userInput").value;
             if (!userInput.trim()) {
@@ -213,7 +281,7 @@
             const data = await response.json();
             if (response.ok) {
                 const chatBox = document.getElementById("chatBox");
-                chatBox.innerHTML += `<div class="user-message"><b>You:</b> ${userInput}</div>`;
+                chatBox.innerHTML += `<div class="user-message"><b>You:</b> ${escapeHtml(userInput)}</div>`;
                 chatBox.innerHTML += `<div class="bot-message"><b>Bot:</b> ${data.response}</div>`;
                 document.getElementById("userInput").value = "";
                 chatBox.scrollTop = chatBox.scrollHeight;
