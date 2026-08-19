@@ -32,18 +32,6 @@ topic or question, and the app generates a **structured learning path**, **modul
 |-------------|---------|
 | ![Module page](screenshots/module.png) | ![AI chat](screenshots/chat.png) |
 
-**How to add your screenshots:**
-1. Run the app and open each page in your browser.
-2. Take a screenshot (Mac: `Cmd + Shift + 4`, then drag to select).
-3. Create a `screenshots/` folder in the project and save the images there using the exact
-   names above (`home.png`, `learning-path.png`, `module.png`, `chat.png`).
-4. Commit and push them:
-   ```bash
-   git add screenshots/
-   git commit -m "Add screenshots"
-   git push
-   ```
-5. Refresh your GitHub page — the images will appear automatically.
 
 ---
 
