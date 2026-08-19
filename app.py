@@ -105,36 +105,50 @@ gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 model_name = "gemini-flash-latest"  # Updated model name
 
 
-def gemini_api_response(user_input):
-    """Generate content using the new Google GenAI library"""
-    try:
-        # Prepare content for Gemini
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text=user_input),
-                ],
-            ),
-        ]
+def gemini_api_response(user_input, max_retries=4):
+    """Generate content using the new Google GenAI library.
 
-        # Configure generation
-        generate_content_config = types.GenerateContentConfig(
-            temperature=0.7,
-            max_output_tokens=4000
-        )
+    Retries automatically on transient errors (e.g. the model being briefly
+    overloaded -> HTTP 503), which are common on the free tier. Uses exponential
+    backoff. Returns an error string only if every attempt fails.
+    """
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_text(text=user_input),
+            ],
+        ),
+    ]
+    generate_content_config = types.GenerateContentConfig(
+        temperature=0.7,
+        max_output_tokens=4000
+    )
 
-        # Generate response
-        response = gemini_client.models.generate_content(
-            model=model_name,
-            contents=contents,
-            config=generate_content_config,
-        )
-
-        return response.text
-    except Exception as e:
-        print(f"Error generating content: {e}")
-        return "Sorry, I encountered an error while generating the response."
+    transient = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED",
+                 "500", "INTERNAL", "overloaded", "high demand")
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            response = gemini_client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=generate_content_config,
+            )
+            return response.text
+        except Exception as e:
+            last_error = e
+            msg = str(e)
+            # Only retry errors that are likely to clear up on their own.
+            if attempt < max_retries - 1 and any(code in msg for code in transient):
+                wait = min(2 ** attempt, 8)  # 1s, 2s, 4s, 8s
+                print(f"Transient Gemini error (attempt {attempt + 1}/{max_retries}), "
+                      f"retrying in {wait}s: {msg[:90]}")
+                time.sleep(wait)
+                continue
+            break
+    print(f"Error generating content (gave up): {last_error}")
+    return "Sorry, I encountered an error while generating the response."
 
 
 @app.route("/", methods=["GET"])
@@ -251,6 +265,26 @@ Continue this pattern for all 6 modules. Start with basics and progress to advan
     if not modules_dict:
         print("Primary parsing failed, trying alternative method...")
         modules_dict = alternative_parse_method(response_text)
+
+    # If we still have nothing, the AI call likely failed (e.g. the model was
+    # overloaded). Show a clear message instead of a blank/"stuck" page.
+    if not modules_dict:
+        return render_template_string("""
+        <div style="font-family: Poppins, sans-serif; max-width: 640px; margin: 12vh auto;
+                    text-align: center; color: #eee; background: #12203a; padding: 40px;
+                    border-radius: 16px;">
+            <h2>⚠️ Couldn't build your learning path just now</h2>
+            <p style="line-height:1.6; color:#c9d4e6;">
+                The AI service was busy or temporarily unavailable. This is usually
+                temporary — please go back and try again in a few moments.
+            </p>
+            <a href="/" style="display:inline-block; margin-top:18px; padding:12px 26px;
+               background:linear-gradient(135deg,#ff6a00,#ffb400); color:#111;
+               text-decoration:none; border-radius:30px; font-weight:600;">
+               ← Try again
+            </a>
+        </div>
+        """), 503
 
     return render_template("result.html", modules=modules_dict)
 
