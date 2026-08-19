@@ -200,6 +200,53 @@
             box-shadow: 0 10px 25px rgba(255, 106, 0, 0.4);
         }
 
+        /* Loading overlay shown while a module is being built */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(9, 10, 15, 0.93);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-spinner {
+            width: 64px;
+            height: 64px;
+            border: 6px solid rgba(255, 180, 0, 0.25);
+            border-top-color: #ffb400;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 24px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-overlay h2 {
+            font-size: 1.6rem;
+            margin: 0 0 8px;
+            background: linear-gradient(135deg, #ff6a00, #ffb400);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .loading-overlay p {
+            color: #c9d4e6;
+            opacity: 0.85;
+            max-width: 420px;
+        }
+
         @media (max-width: 768px) {
             .modules-section {
                 padding: 30px 20px;
@@ -246,7 +293,14 @@
     </header>
     
     <canvas id="space"></canvas>
-    
+
+    <!-- Loading overlay: shown when a module is being generated -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <h2>Building your module…</h2>
+        <p>Generating lessons and finding videos. This can take up to a minute — please don't close the page.</p>
+    </div>
+
     <div class="main-container">
         <div class="modules-section">
             <h1>Learning Path Modules</h1>
@@ -257,7 +311,7 @@
                 {% if module_name not in seen_modules %}
                 <div class="module">
                     <button class="module-button">{{ module_name }}</button>
-                    <button class="go-button" onclick="window.location.href='/{{ loop.index }}'">GO</button>
+                    <button class="go-button" onclick="goToModule('/{{ loop.index }}')">GO</button>
                 </div>
                 {% endif %}
                 {% endfor %}
@@ -303,6 +357,12 @@
 
         draw();
 
+        // Show the loading overlay, then navigate to the module page.
+        function goToModule(url) {
+            document.getElementById('loadingOverlay').classList.add('active');
+            window.location.href = url;
+        }
+
         function updateModules(modules) {
             const modulesGrid = document.getElementById('modulesGrid');
             modulesGrid.innerHTML = '';
@@ -313,7 +373,7 @@
                 
                 moduleDiv.innerHTML = `
                     <button class="module-button">${moduleName}</button>
-                    <button class="go-button" onclick="window.location.href='/${index + 1}'">GO</button>
+                    <button class="go-button" onclick="goToModule('/${index + 1}')">GO</button>
                 `;
                 
                 modulesGrid.appendChild(moduleDiv);
