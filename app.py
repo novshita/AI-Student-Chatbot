@@ -102,15 +102,19 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set")
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-model_name = "gemini-flash-latest"  # Updated model name
+model_name = "gemini-flash-latest"  # Preferred model
+# If the preferred model is overloaded (503), fall back to these (in order).
+# They are usually available even when the newest model is swamped.
+FALLBACK_MODELS = ["gemini-flash-lite-latest", "gemini-3.5-flash"]
 
 
-def gemini_api_response(user_input, max_retries=4):
+def gemini_api_response(user_input, retries_per_model=2):
     """Generate content using the new Google GenAI library.
 
-    Retries automatically on transient errors (e.g. the model being briefly
-    overloaded -> HTTP 503), which are common on the free tier. Uses exponential
-    backoff. Returns an error string only if every attempt fails.
+    Resilient to the free tier being flaky in two ways:
+      1. Retries each model on transient errors (e.g. HTTP 503 "overloaded").
+      2. Falls back to alternative models if the preferred one stays overloaded.
+    Returns an error string only if every model fails.
     """
     contents = [
         types.Content(
@@ -128,26 +132,27 @@ def gemini_api_response(user_input, max_retries=4):
     transient = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED",
                  "500", "INTERNAL", "overloaded", "high demand")
     last_error = None
-    for attempt in range(max_retries):
-        try:
-            response = gemini_client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=generate_content_config,
-            )
-            return response.text
-        except Exception as e:
-            last_error = e
-            msg = str(e)
-            # Only retry errors that are likely to clear up on their own.
-            if attempt < max_retries - 1 and any(code in msg for code in transient):
-                wait = min(2 ** attempt, 8)  # 1s, 2s, 4s, 8s
-                print(f"Transient Gemini error (attempt {attempt + 1}/{max_retries}), "
-                      f"retrying in {wait}s: {msg[:90]}")
-                time.sleep(wait)
-                continue
-            break
-    print(f"Error generating content (gave up): {last_error}")
+    for model in [model_name] + FALLBACK_MODELS:
+        for attempt in range(retries_per_model):
+            try:
+                response = gemini_client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config,
+                )
+                return response.text
+            except Exception as e:
+                last_error = e
+                msg = str(e)
+                is_transient = any(code in msg for code in transient)
+                # Retry the same model once more on a transient error...
+                if is_transient and attempt < retries_per_model - 1:
+                    time.sleep(min(2 ** attempt, 4))  # 1s, 2s
+                    continue
+                # ...otherwise move on to the next fallback model.
+                print(f"Model '{model}' failed (attempt {attempt + 1}): {msg[:90]}")
+                break
+    print(f"All models failed: {last_error}")
     return "Sorry, I encountered an error while generating the response."
 
 
