@@ -686,6 +686,9 @@
         <button class="quiz-button" onclick="loadQuiz()" title="Take Quiz">
             <i class="fas fa-question-circle"></i>
         </button>
+        <button class="chat-button" onclick="openChatWidget()" title="AI Chat">
+            <i class="fas fa-comments"></i>
+        </button>
     </div>
 
     <!-- Popup -->
@@ -702,6 +705,9 @@
             </div>
         </div>
     </div>
+
+    <!-- AI chat widget (opened by the chat button above) -->
+    {% include "_chat_widget.html" %}
 
     <script>
         // Enhanced canvas animation with stars
