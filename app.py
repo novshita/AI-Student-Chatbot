@@ -153,6 +153,10 @@ def gemini_api_response(user_input, retries_per_model=2):
                 print(f"Model '{model}' failed (attempt {attempt + 1}): {msg[:90]}")
                 break
     print(f"All models failed: {last_error}")
+    quota_exhausted = last_error and any(
+        code in str(last_error) for code in ("429", "RESOURCE_EXHAUSTED"))
+    if quota_exhausted:
+        return "Daily limit reached — please try again tomorrow."
     return "Sorry, I encountered an error while generating the response."
 
 
