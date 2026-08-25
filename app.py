@@ -54,8 +54,7 @@ def get_youtube_urls_from_gemini_api(topics):
             candidates = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
             # De-duplicate while preserving order
             seen = set()
-            candidates = [c for c in candidates if not (
-                c in seen or seen.add(c))]
+            candidates = [c for c in candidates if not (c in seen or seen.add(c))]
             # Pick the first result that is embeddable (check a few, then give up)
             for cand in candidates[:5]:
                 if _is_embeddable(cand):
@@ -103,39 +102,62 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set")
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-model_name = "gemini-flash-latest"  # Updated model name
+model_name = "gemini-flash-latest"  # Preferred model
+# If the preferred model is overloaded (503), fall back to these (in order).
+# They are usually available even when the newest model is swamped.
+FALLBACK_MODELS = ["gemini-flash-lite-latest", "gemini-3.5-flash"]
 
 
-def gemini_api_response(user_input):
-    """Generate content using the new Google GenAI library"""
-    try:
-        # Prepare content for Gemini
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text=user_input),
-                ],
-            ),
-        ]
+def gemini_api_response(user_input, retries_per_model=2):
+    """Generate content using the new Google GenAI library.
 
-        # Configure generation
-        generate_content_config = types.GenerateContentConfig(
-            temperature=0.7,
-            max_output_tokens=4000
-        )
+    Resilient to the free tier being flaky in two ways:
+      1. Retries each model on transient errors (e.g. HTTP 503 "overloaded").
+      2. Falls back to alternative models if the preferred one stays overloaded.
+    Returns an error string only if every model fails.
+    """
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_text(text=user_input),
+            ],
+        ),
+    ]
+    generate_content_config = types.GenerateContentConfig(
+        temperature=0.7,
+        max_output_tokens=4000
+    )
 
-        # Generate response
-        response = gemini_client.models.generate_content(
-            model=model_name,
-            contents=contents,
-            config=generate_content_config,
-        )
-
-        return response.text
-    except Exception as e:
-        print(f"Error generating content: {e}")
-        return "Sorry, I encountered an error while generating the response."
+    transient = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED",
+                 "500", "INTERNAL", "overloaded", "high demand")
+    last_error = None
+    for model in [model_name] + FALLBACK_MODELS:
+        for attempt in range(retries_per_model):
+            try:
+                response = gemini_client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config,
+                )
+                return response.text
+            except Exception as e:
+                last_error = e
+                msg = str(e)
+                is_transient = any(code in msg for code in transient)
+                # Retry the same model once more on a transient error...
+                if is_transient and attempt < retries_per_model - 1:
+                    time.sleep(min(2 ** attempt, 4))  # 1s, 2s
+                    continue
+                # ...otherwise move on to the next fallback model.
+                print(f"Model '{model}' failed (attempt {attempt + 1}): {msg[:90]}")
+                break
+    print(f"All models failed: {last_error}")
+    quota_exhausted = last_error and any(
+        code in str(last_error) for code in ("429", "RESOURCE_EXHAUSTED"))
+    if quota_exhausted:
+        return "Daily limit reached — please try again tomorrow."
+    return "Sorry, I encountered an error while generating the response."
 
 
 @app.route("/", methods=["GET"])
@@ -252,6 +274,26 @@ Continue this pattern for all 6 modules. Start with basics and progress to advan
     if not modules_dict:
         print("Primary parsing failed, trying alternative method...")
         modules_dict = alternative_parse_method(response_text)
+
+    # If we still have nothing, the AI call likely failed (e.g. the model was
+    # overloaded). Show a clear message instead of a blank/"stuck" page.
+    if not modules_dict:
+        return render_template_string("""
+        <div style="font-family: Poppins, sans-serif; max-width: 640px; margin: 12vh auto;
+                    text-align: center; color: #eee; background: #12203a; padding: 40px;
+                    border-radius: 16px;">
+            <h2>⚠️ Couldn't build your learning path just now</h2>
+            <p style="line-height:1.6; color:#c9d4e6;">
+                The AI service was busy or temporarily unavailable. This is usually
+                temporary — please go back and try again in a few moments.
+            </p>
+            <a href="/" style="display:inline-block; margin-top:18px; padding:12px 26px;
+               background:linear-gradient(135deg,#ff6a00,#ffb400); color:#111;
+               text-decoration:none; border-radius:30px; font-weight:600;">
+               ← Try again
+            </a>
+        </div>
+        """), 503
 
     return render_template("result.html", modules=modules_dict)
 
@@ -754,6 +796,9 @@ def chat():
 
     # Call the new Gemini API
     bot_response = gemini_api_response(user_message)
+    if bot_response:
+        bot_response = markdown.markdown(
+            bot_response, extensions=['fenced_code', 'tables', 'toc'])
     return jsonify({"response": bot_response})
 
 
