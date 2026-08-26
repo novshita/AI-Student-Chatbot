@@ -22,7 +22,6 @@ topic or question, and the app generates a **structured learning path**, **modul
 
 ## 📸 Screenshots
 
-> _Screenshots coming soon — placeholders below. Replace them with your own images._
 
 | Home page | Learning path |
 |-----------|---------------|
