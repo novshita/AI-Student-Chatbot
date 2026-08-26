@@ -3,7 +3,12 @@
 <div id="chatWidgetPanel" class="chat-widget-panel">
     <div class="chat-widget-header">
         <span>💬 AI Chat</span>
-        <button class="chat-widget-close" onclick="closeChatWidget()">&times;</button>
+        <div class="chat-widget-header-actions">
+            <button class="chat-widget-expand" onclick="toggleChatWidgetExpand()" title="Expand">
+                <i class="fas fa-expand"></i>
+            </button>
+            <button class="chat-widget-close" onclick="closeChatWidget()">&times;</button>
+        </div>
     </div>
     <div id="chatWidgetBox" class="chat-widget-box"></div>
     <div class="chat-widget-input">
@@ -31,10 +36,16 @@
         z-index: 1500;
         overflow: hidden;
         font-family: 'Poppins', sans-serif;
+        transition: width 0.25s ease, height 0.25s ease;
     }
 
     .chat-widget-panel.open {
         display: flex;
+    }
+
+    .chat-widget-panel.expanded {
+        width: 650px;
+        height: 700px;
     }
 
     .chat-widget-header {
@@ -45,6 +56,21 @@
         background: linear-gradient(135deg, #ff6a00, #ffb400);
         color: #fff;
         font-weight: 600;
+    }
+
+    .chat-widget-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+
+    .chat-widget-expand {
+        background: none;
+        border: none;
+        color: #fff;
+        font-size: 16px;
+        cursor: pointer;
+        line-height: 1;
     }
 
     .chat-widget-close {
@@ -178,6 +204,14 @@
 
     function closeChatWidget() {
         document.getElementById('chatWidgetPanel').classList.remove('open');
+    }
+
+    function toggleChatWidgetExpand() {
+        const panel = document.getElementById('chatWidgetPanel');
+        const icon = document.querySelector('.chat-widget-expand i');
+        const expanded = panel.classList.toggle('expanded');
+        icon.classList.toggle('fa-expand', !expanded);
+        icon.classList.toggle('fa-compress', expanded);
     }
 
     function escapeChatWidgetHtml(text) {
