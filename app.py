@@ -693,25 +693,72 @@ def process_input():
     return generate_prompt(user_input, input_type)
 
 
-def render_quiz_template(quiz_q, score=None):
+def render_quiz_template(quiz_q, quiz_a=None, user_answers=None, score=None):
+    """Render the quiz form. When quiz_a/user_answers are provided, renders the
+    graded view instead: options are disabled, the correct answer is highlighted
+    green, and the student's wrong pick (if any) is highlighted red."""
+    graded = quiz_a is not None and user_answers is not None
     quiz_html = ""
     for i, (question, options) in enumerate(quiz_q.items()):
-        quiz_html += f"<div><p>{i+1}. {question}</p>"
+        quiz_html += f"<div class='quiz-question'><p>{i+1}. {question}</p>"
         for option in options:
-            quiz_html += f'<label><input type="radio" name="question-{i}" value="{option}"> {option}</label><br>'
+            css_class = ""
+            if graded:
+                if option == quiz_a[i]:
+                    css_class = "quiz-correct"
+                elif option == user_answers.get(f"question-{i}"):
+                    css_class = "quiz-wrong"
+            checked = "checked" if graded and user_answers.get(
+                f"question-{i}") == option else ""
+            disabled = "disabled" if graded else ""
+            quiz_html += (f'<label class="{css_class}"><input type="radio" name="question-{i}" '
+                          f'value="{option}" {checked} {disabled}> {option}</label><br>')
         quiz_html += "</div>"
-    result = f"<p>Your score: {score}/{len(quiz_q)}</p>" if score is not None else ""
-    return f"""
-    <form method="POST" action="/q1">
+
+    style = """
+    <style>
+        .quiz-question { margin-bottom: 16px; }
+        .quiz-question p { font-weight: 600; margin-bottom: 8px; }
+        .quiz-question label { display: block; padding: 6px 10px; border-radius: 6px; margin-bottom: 4px; }
+        .quiz-correct { background: rgba(76, 175, 80, 0.25); color: #4caf50; font-weight: 600; }
+        .quiz-wrong { background: rgba(244, 67, 54, 0.25); color: #f44336; font-weight: 600; }
+        .quiz-score { font-size: 1.2rem; font-weight: 700; margin-top: 12px; }
+    </style>
+    """
+
+    if graded:
+        return f"""
+        {style}
         {quiz_html}
-        <button type="submit">Submit</button>
+        <p class="quiz-score">Your score: {score}/{len(quiz_q)}</p>
+        """
+
+    return f"""
+    {style}
+    <form id="quizForm">
+        {quiz_html}
+        <button type="button" onclick="submitQuizForm()">Submit</button>
     </form>
-    {result}
     """
 
 
+# Caches the generated quiz (questions + answer key) per module route, so the
+# answers submitted are graded against the same quiz the student was shown.
+quiz_cache = {}
+
+
 def generate_quiz(module_index, route_name):
-    """Generate quiz for a specific module"""
+    """Generate (GET) or grade (POST) the quiz for a specific module."""
+    if request.method == 'POST':
+        cached = quiz_cache.get(route_name)
+        if not cached:
+            return render_template_string("<p>Your quiz session expired. Please reopen the quiz.</p>")
+        quiz_q, quiz_a = cached["quiz_q"], cached["quiz_a"]
+        user_answers = request.form
+        score = sum(1 for i in range(len(quiz_q))
+                    if user_answers.get(f"question-{i}") == quiz_a[i])
+        return render_template_string(render_quiz_template(quiz_q, quiz_a, user_answers, score))
+
     try:
         prompt = f"do exactly what i say don't do any thing extra give me a quiz on topics{str(modules_dict[list(modules_dict.keys())[module_index]])} it should have exactly 5 questions remember exactly 5 questions and 4 options for each and hear me this is the main part all questions and options you give me must be in the form of a dictionary named as quiz_q all the questions must be the keys and options must be in the form of lists and correct answers must be returned separately in a list named as quiz_a"
 
@@ -735,22 +782,15 @@ def generate_quiz(module_index, route_name):
                 "Option A", "Option B", "Option C", "Option D"]}
             quiz_a = ["Option A"]
 
-        if request.method == 'POST':
-            user_answers = request.form
-            score = 0
-            for i, question in enumerate(quiz_q.keys()):
-                if user_answers.get(f"question-{i}") == quiz_a[i]:
-                    score += 1
-            return render_template_string(render_quiz_template(quiz_q, score))
-
-        return render_template_string(render_quiz_template(quiz_q))
-
     except Exception as e:
         print(f"Error generating quiz: {e}")
-        # Return a simple fallback quiz
-        fallback_quiz = {"Sample question about the module topics?": [
+        # Fallback: create a simple quiz
+        quiz_q = {"Sample question about the module topics?": [
             "Option A", "Option B", "Option C", "Option D"]}
-        return render_template_string(render_quiz_template(fallback_quiz))
+        quiz_a = ["Option A"]
+
+    quiz_cache[route_name] = {"quiz_q": quiz_q, "quiz_a": quiz_a}
+    return render_template_string(render_quiz_template(quiz_q))
 
 
 @app.route("/q1", methods=['GET', 'POST'])
