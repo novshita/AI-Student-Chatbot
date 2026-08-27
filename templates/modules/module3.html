@@ -783,6 +783,8 @@
             document.querySelector('.popup-overlay').style.display = 'none';
         }
 
+        const quizRoute = '/q3';
+
         function loadQuiz() {
             openPopup();
             // Reset quiz content to loading state
@@ -792,9 +794,9 @@
                     <p>Preparing your cosmic quiz...</p>
                 </div>
             `;
-            
+
             // Fetch quiz content dynamically
-            fetch('/q1')
+            fetch(quizRoute)
                 .then(response => response.text())
                 .then(data => {
                     document.getElementById('quiz-content').innerHTML = data;
@@ -808,6 +810,26 @@
                         </div>
                     `;
                     console.error('Error fetching quiz:', error);
+                });
+        }
+
+        function submitQuizForm() {
+            const form = document.getElementById('quizForm');
+            const formData = new FormData(form);
+            fetch(quizRoute, { method: 'POST', body: formData })
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('quiz-content').innerHTML = data;
+                })
+                .catch(error => {
+                    document.getElementById('quiz-content').innerHTML = `
+                        <div style="text-align: center; padding: 20px;">
+                            <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: #ff6a00; margin-bottom: 15px;"></i>
+                            <p>Oops! Unable to submit the quiz right now.</p>
+                            <p style="font-size: 0.9rem; color: #ccc;">Please try again later.</p>
+                        </div>
+                    `;
+                    console.error('Error submitting quiz:', error);
                 });
         }
 
