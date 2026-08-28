@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask import render_template_string
 from functools import wraps
 from google import genai
@@ -6,13 +6,12 @@ from google.genai import types
 import requests
 import re
 import markdown
-import json
 import os
 from dotenv import load_dotenv
-from bs4 import BeautifulSoup
 import time
 import random
 import urllib.parse
+import secrets
 # import base64
 # from google import generativeai as genai
 # from google.generativeai import types
@@ -70,18 +69,32 @@ def get_youtube_urls_from_gemini_api(topics):
     return results
 
 
-# Global variables
-global entry1, entry2, entry3, entry4, entry5, entry6, entry7
-global txt1, link1, txt2, link2, txt3, link3, txt4, link4, txt5, link5, txt6, link6
-entry1 = 0
-entry2 = 0
-entry3 = 0
-entry4 = 0
-entry5 = 0
-entry6 = 0
-
-modules_dict = {}
 app = Flask(__name__)
+# Signs the session cookie. Falls back to a random key generated at startup
+# (fine for local dev; set FLASK_SECRET_KEY in .env for a stable one).
+app.secret_key = os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
+
+# Per-visitor app state (learning path, module content, quiz cache), keyed by
+# a random id stored in the session cookie. Kept server-side rather than in
+# the cookie itself because Flask's session cookie is capped at ~4KB and
+# can't hold a generated course's worth of content.
+user_states = {}
+
+
+def get_user_state():
+    """Return (creating if needed) the current visitor's isolated app state."""
+    if "uid" not in session:
+        session["uid"] = secrets.token_hex(16)
+    uid = session["uid"]
+    if uid not in user_states:
+        user_states[uid] = {
+            "modules_dict": {},
+            "entries": [0] * 6,
+            "txt": [None] * 6,
+            "links": [None] * 6,
+            "quiz_cache": {},
+        }
+    return user_states[uid]
 
 
 def require_modules(f):
@@ -89,7 +102,7 @@ def require_modules(f):
     instead of crashing with an IndexError on an empty modules_dict."""
     @wraps(f)
     def wrapper(*args, **kwargs):
-        if not modules_dict:
+        if not get_user_state()["modules_dict"]:
             return redirect(url_for("home"))
         return f(*args, **kwargs)
     return wrapper
@@ -190,7 +203,8 @@ def classify_prompt(prompt):
 
 
 def generate_learning_path(search_query):
-    global modules_dict
+    state = get_user_state()
+    modules_dict = state["modules_dict"]
 
     ip = f"""Create a structured learning path for {search_query} with exactly 6 modules. Format your response EXACTLY like this:
 
@@ -274,6 +288,7 @@ Continue this pattern for all 6 modules. Start with basics and progress to advan
     if not modules_dict:
         print("Primary parsing failed, trying alternative method...")
         modules_dict = alternative_parse_method(response_text)
+        state["modules_dict"] = modules_dict
 
     # If we still have nothing, the AI call likely failed (e.g. the model was
     # overloaded). Show a clear message instead of a blank/"stuck" page.
@@ -520,134 +535,59 @@ def generate_module_content(module_topics):
     return content
 
 
+def render_module_page(index, template_name):
+    """Render a module page, generating its content/videos once (cached in
+    this visitor's session state) and reusing them on subsequent visits."""
+    state = get_user_state()
+    modules_dict = state["modules_dict"]
+    module_name = list(modules_dict.keys())[index]
+
+    if state["entries"][index] == 0:
+        state["txt"][index] = generate_module_content(
+            modules_dict[module_name])
+        state["links"][index] = get_youtube_urls_from_gemini_api(
+            modules_dict[module_name])
+        state["entries"][index] = 1
+
+    return render_template(template_name, modules=modules_dict,
+                           module=modules_dict[module_name],
+                           text=state["txt"][index], links=state["links"][index])
+
+
 @app.route("/1")
 @require_modules
 def module_1():
-    global entry1, txt1, link1
-
-    if entry1 == 0:
-        txt1 = generate_module_content(
-            modules_dict[list(modules_dict.keys())[0]])
-        link1 = get_youtube_urls_from_gemini_api(
-            modules_dict[list(modules_dict.keys())[0]])
-        entry1 = 1
-        current_module_data = modules_dict[list(modules_dict.keys())[0]]
-        return render_template("modules/module1.html", modules=modules_dict, module=current_module_data, text=txt1, links=link1)
-    else:
-        return render_template("modules/module1.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[0]],
-                               text=txt1, links=link1)
+    return render_module_page(0, "modules/module1.html")
 
 
 @app.route("/2")
 @require_modules
 def module_2():
-    global entry2, txt2, link2
-
-    if entry2 == 0:
-        txt2 = generate_module_content(
-            modules_dict[list(modules_dict.keys())[1]])
-        link2 = get_youtube_urls_from_gemini_api(
-            modules_dict[list(modules_dict.keys())[1]])
-        entry2 = 1
-        return render_template("modules/module2.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[1]],
-                               text=txt2, links=link2)
-    else:
-        return render_template("modules/module2.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[1]],
-                               text=txt2, links=link2)
+    return render_module_page(1, "modules/module2.html")
 
 
 @app.route("/3")
 @require_modules
 def module_3():
-    global entry3, txt3, link3
-
-    if entry3 == 0:
-        txt3 = generate_module_content(
-            modules_dict[list(modules_dict.keys())[2]])
-        link3 = get_youtube_urls_from_gemini_api(
-            modules_dict[list(modules_dict.keys())[2]])
-        entry3 = 1
-        return render_template("modules/module3.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[2]],
-                               text=txt3, links=link3)
-    else:
-        return render_template("modules/module3.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[2]],
-                               text=txt3, links=link3)
+    return render_module_page(2, "modules/module3.html")
 
 
 @app.route("/4")
 @require_modules
 def module_4():
-    global entry4, txt4, link4
-
-    if entry4 == 0:
-        txt4 = generate_module_content(
-            modules_dict[list(modules_dict.keys())[3]])
-        link4 = get_youtube_urls_from_gemini_api(
-            modules_dict[list(modules_dict.keys())[3]])
-        entry4 = 1
-        return render_template("modules/module4.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[3]],
-                               text=txt4, links=link4)
-    else:
-        return render_template("modules/module4.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[3]],
-                               text=txt4, links=link4)
+    return render_module_page(3, "modules/module4.html")
 
 
 @app.route("/5")
 @require_modules
 def module_5():
-    global entry5, txt5, link5
-
-    if entry5 == 0:
-        txt5 = generate_module_content(
-            modules_dict[list(modules_dict.keys())[4]])
-        link5 = get_youtube_urls_from_gemini_api(
-            modules_dict[list(modules_dict.keys())[4]])
-        entry5 = 1
-        return render_template("modules/module5.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[4]],
-                               text=txt5, links=link5)
-    else:
-        return render_template("modules/module5.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[4]],
-                               text=txt5, links=link5)
+    return render_module_page(4, "modules/module5.html")
 
 
 @app.route("/6")
 @require_modules
 def module_6():
-    global entry6, txt6, link6
-
-    if entry6 == 0:
-        txt6 = generate_module_content(
-            modules_dict[list(modules_dict.keys())[5]])
-        link6 = get_youtube_urls_from_gemini_api(
-            modules_dict[list(modules_dict.keys())[5]])
-        entry6 = 1
-        return render_template("modules/module6.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[5]],
-                               text=txt6, links=link6)
-    else:
-        return render_template("modules/module6.html", modules=modules_dict,
-                               module=modules_dict[list(
-                                   modules_dict.keys())[5]],
-                               text=txt6, links=link6)
+    return render_module_page(5, "modules/module6.html")
 
 
 def generate_prompt(user_input, input_type):
@@ -686,7 +626,7 @@ def process_input():
     Processes user input, classifies it as a topic or question,
     and generates a prompt accordingly.
     """
-    modules_dict.clear()
+    get_user_state()["modules_dict"].clear()
     user_input = request.form.get("search_query")  # User's input from the form
     input_type = classify_prompt(user_input)    # Classify as topic or question
     # Generate appropriate prompt
@@ -742,13 +682,11 @@ def render_quiz_template(quiz_q, quiz_a=None, user_answers=None, score=None):
     """
 
 
-# Caches the generated quiz (questions + answer key) per module route, so the
-# answers submitted are graded against the same quiz the student was shown.
-quiz_cache = {}
-
-
 def generate_quiz(module_index, route_name):
     """Generate (GET) or grade (POST) the quiz for a specific module."""
+    state = get_user_state()
+    quiz_cache = state["quiz_cache"]
+
     if request.method == 'POST':
         cached = quiz_cache.get(route_name)
         if not cached:
@@ -760,6 +698,7 @@ def generate_quiz(module_index, route_name):
         return render_template_string(render_quiz_template(quiz_q, quiz_a, user_answers, score))
 
     try:
+        modules_dict = state["modules_dict"]
         prompt = f"do exactly what i say don't do any thing extra give me a quiz on topics{str(modules_dict[list(modules_dict.keys())[module_index]])} it should have exactly 5 questions remember exactly 5 questions and 4 options for each and hear me this is the main part all questions and options you give me must be in the form of a dictionary named as quiz_q all the questions must be the keys and options must be in the form of lists and correct answers must be returned separately in a list named as quiz_a"
 
         response_text = gemini_api_response(prompt)
