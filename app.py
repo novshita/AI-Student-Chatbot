@@ -5,7 +5,7 @@ from google import genai
 from google.genai import types
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (LoginManager, UserMixin, login_user, logout_user,
-                          login_required, current_user)
+                         login_required, current_user)
 from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 import re
@@ -58,7 +58,8 @@ def get_youtube_urls_from_gemini_api(topics):
             candidates = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
             # De-duplicate while preserving order
             seen = set()
-            candidates = [c for c in candidates if not (c in seen or seen.add(c))]
+            candidates = [c for c in candidates if not (
+                c in seen or seen.add(c))]
             # Pick the first result that is embeddable (check a few, then give up)
             for cand in candidates[:5]:
                 if _is_embeddable(cand):
@@ -83,7 +84,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
-login_manager.login_view = "login"
+login_manager.login_view = "login"  # type: ignore
 
 
 class User(UserMixin, db.Model):
@@ -162,7 +163,8 @@ def persist_state_if_logged_in():
     if saved:
         saved.state_json = payload
     else:
-        saved = SavedLearningPath(user_id=current_user.id, state_json=payload)
+        saved = SavedLearningPath(
+            user_id=current_user.id, state_json=payload)  # type: ignore
         db.session.add(saved)
     db.session.commit()
 
@@ -233,7 +235,8 @@ def gemini_api_response(user_input, retries_per_model=2):
                     time.sleep(min(2 ** attempt, 4))  # 1s, 2s
                     continue
                 # ...otherwise move on to the next fallback model.
-                print(f"Model '{model}' failed (attempt {attempt + 1}): {msg[:90]}")
+                print(
+                    f"Model '{model}' failed (attempt {attempt + 1}): {msg[:90]}")
                 break
     print(f"All models failed: {last_error}")
     quota_exhausted = last_error and any(
@@ -268,8 +271,7 @@ def signup():
         if User.query.filter_by(email=email).first():
             return render_template("signup.html", error="That email is already registered.")
 
-        user = User(email=email,
-                    password_hash=generate_password_hash(password))
+        user = User(email=email, password_hash=generate_password_hash(password))
         db.session.add(user)
         db.session.commit()
         login_user(user, remember=True)
@@ -391,7 +393,7 @@ Continue this pattern for all 6 modules. Start with basics and progress to advan
             modules_dict[f"Module {i+1}: {module_name}"] = subtopics
             print(f"Added to dictionary: Module {i+1}: {module_name}")
         else:
-            print(f"Skipped module due to insufficient data")
+            print("Skipped module due to insufficient data")
 
     print("++++++FINAL MODULES DICT++++++")
     print(modules_dict)
