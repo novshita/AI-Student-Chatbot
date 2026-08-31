@@ -3,9 +3,14 @@ from flask import render_template_string
 from functools import wraps
 from google import genai
 from google.genai import types
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import (LoginManager, UserMixin, login_user, logout_user,
+                          login_required, current_user)
+from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 import re
 import markdown
+import json
 import os
 from dotenv import load_dotenv
 import time
@@ -73,28 +78,93 @@ app = Flask(__name__)
 # Signs the session cookie. Falls back to a random key generated at startup
 # (fine for local dev; set FLASK_SECRET_KEY in .env for a stable one).
 app.secret_key = os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///app.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Per-visitor app state (learning path, module content, quiz cache), keyed by
-# a random id stored in the session cookie. Kept server-side rather than in
-# the cookie itself because Flask's session cookie is capped at ~4KB and
-# can't hold a generated course's worth of content.
+db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = "login"
+
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+
+
+class SavedLearningPath(db.Model):
+    """One row per account: a JSON snapshot of that user's most recent
+    learning path (modules, module content, video links, quiz cache), so it
+    survives logging out/in or switching devices instead of resetting."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey(
+        "user.id"), unique=True, nullable=False)
+    state_json = db.Column(db.Text, nullable=False)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(User, int(user_id))
+
+
+with app.app_context():
+    db.create_all()
+
+
+def _blank_state():
+    return {
+        "modules_dict": {},
+        "entries": [0] * 6,
+        "txt": [None] * 6,
+        "links": [None] * 6,
+        "quiz_cache": {},
+    }
+
+
+# Per-visitor app state (learning path, module content, quiz cache). Guests
+# are keyed by a random id stored in the session cookie; logged-in users are
+# keyed by their account id and hydrated from (then written back to) the
+# database, so their progress survives across logins/devices. Kept
+# server-side rather than in the cookie itself because Flask's session
+# cookie is capped at ~4KB and can't hold a generated course's worth of
+# content.
 user_states = {}
 
 
 def get_user_state():
-    """Return (creating if needed) the current visitor's isolated app state."""
-    if "uid" not in session:
-        session["uid"] = secrets.token_hex(16)
-    uid = session["uid"]
-    if uid not in user_states:
-        user_states[uid] = {
-            "modules_dict": {},
-            "entries": [0] * 6,
-            "txt": [None] * 6,
-            "links": [None] * 6,
-            "quiz_cache": {},
-        }
-    return user_states[uid]
+    """Return (creating/loading if needed) the current visitor's isolated app state."""
+    if current_user.is_authenticated:
+        key = f"user:{current_user.id}"
+    else:
+        if "uid" not in session:
+            session["uid"] = secrets.token_hex(16)
+        key = f"guest:{session['uid']}"
+
+    if key not in user_states:
+        state = None
+        if current_user.is_authenticated:
+            saved = SavedLearningPath.query.filter_by(
+                user_id=current_user.id).first()
+            if saved:
+                state = json.loads(saved.state_json)
+        user_states[key] = state or _blank_state()
+    return user_states[key]
+
+
+def persist_state_if_logged_in():
+    """Write the current visitor's state to the database, if they're logged in.
+    Guests only ever get the in-memory, per-session copy (lost on restart)."""
+    if not current_user.is_authenticated:
+        return
+    payload = json.dumps(get_user_state())
+    saved = SavedLearningPath.query.filter_by(
+        user_id=current_user.id).first()
+    if saved:
+        saved.state_json = payload
+    else:
+        saved = SavedLearningPath(user_id=current_user.id, state_json=payload)
+        db.session.add(saved)
+    db.session.commit()
 
 
 def require_modules(f):
@@ -186,6 +256,48 @@ def about():
 @app.route("/contact")
 def contact():
     return render_template("Contact.html")
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        if not email or not password:
+            return render_template("signup.html", error="Please fill in both fields.")
+        if User.query.filter_by(email=email).first():
+            return render_template("signup.html", error="That email is already registered.")
+
+        user = User(email=email,
+                    password_hash=generate_password_hash(password))
+        db.session.add(user)
+        db.session.commit()
+        login_user(user, remember=True)
+        return redirect(url_for("home"))
+
+    return render_template("signup.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        user = User.query.filter_by(email=email).first()
+        if not user or not check_password_hash(user.password_hash, password):
+            return render_template("login.html", error="Invalid email or password.")
+
+        login_user(user, remember=True)
+        return redirect(url_for("home"))
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("home"))
 
 
 def classify_prompt(prompt):
@@ -310,6 +422,7 @@ Continue this pattern for all 6 modules. Start with basics and progress to advan
         </div>
         """), 503
 
+    persist_state_if_logged_in()
     return render_template("result.html", modules=modules_dict)
 
 
@@ -548,6 +661,7 @@ def render_module_page(index, template_name):
         state["links"][index] = get_youtube_urls_from_gemini_api(
             modules_dict[module_name])
         state["entries"][index] = 1
+        persist_state_if_logged_in()
 
     return render_template(template_name, modules=modules_dict,
                            module=modules_dict[module_name],
@@ -555,36 +669,42 @@ def render_module_page(index, template_name):
 
 
 @app.route("/1")
+@login_required
 @require_modules
 def module_1():
     return render_module_page(0, "modules/module1.html")
 
 
 @app.route("/2")
+@login_required
 @require_modules
 def module_2():
     return render_module_page(1, "modules/module2.html")
 
 
 @app.route("/3")
+@login_required
 @require_modules
 def module_3():
     return render_module_page(2, "modules/module3.html")
 
 
 @app.route("/4")
+@login_required
 @require_modules
 def module_4():
     return render_module_page(3, "modules/module4.html")
 
 
 @app.route("/5")
+@login_required
 @require_modules
 def module_5():
     return render_module_page(4, "modules/module5.html")
 
 
 @app.route("/6")
+@login_required
 @require_modules
 def module_6():
     return render_module_page(5, "modules/module6.html")
@@ -621,6 +741,7 @@ def generate_prompt(user_input, input_type):
 
 
 @app.route("/generate", methods=["POST"])
+@login_required
 def process_input():
     """
     Processes user input, classifies it as a topic or question,
@@ -729,35 +850,42 @@ def generate_quiz(module_index, route_name):
         quiz_a = ["Option A"]
 
     quiz_cache[route_name] = {"quiz_q": quiz_q, "quiz_a": quiz_a}
+    persist_state_if_logged_in()
     return render_template_string(render_quiz_template(quiz_q))
 
 
 @app.route("/q1", methods=['GET', 'POST'])
+@login_required
 def quiz_module1():
     return generate_quiz(0, "q1")
 
 
 @app.route("/q2", methods=['GET', 'POST'])
+@login_required
 def quiz_module2():
     return generate_quiz(1, "q2")
 
 
 @app.route("/q3", methods=['GET', 'POST'])
+@login_required
 def quiz_module3():
     return generate_quiz(2, "q3")
 
 
 @app.route("/q4", methods=['GET', 'POST'])
+@login_required
 def quiz_module4():
     return generate_quiz(3, "q4")
 
 
 @app.route("/q5", methods=['GET', 'POST'])
+@login_required
 def quiz_module5():
     return generate_quiz(4, "q5")
 
 
 @app.route("/q6", methods=['GET', 'POST'])
+@login_required
 def quiz_module6():
     return generate_quiz(5, "q6")
 
@@ -768,6 +896,7 @@ def index():
 
 
 @app.route("/chat", methods=["POST"])
+@login_required
 def chat():
     user_message = request.json.get("message", "")
     if not user_message.strip():

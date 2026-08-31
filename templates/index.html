@@ -89,6 +89,69 @@
             color: #ffb400;
         }
 
+        /* Profile dropdown (logged-in nav item) */
+        .profile-dropdown {
+            position: relative;
+        }
+
+        .profile-icon-btn {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 1.6rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            transition: color 0.3s ease;
+        }
+
+        .profile-icon-btn:hover {
+            color: #ffb400;
+        }
+
+        .profile-dropdown-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 15px);
+            right: 0;
+            background: rgba(26, 39, 53, 0.97);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 180, 0, 0.3);
+            border-radius: 12px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+            min-width: 220px;
+            overflow: hidden;
+            z-index: 1001;
+        }
+
+        .profile-dropdown-menu.open {
+            display: block;
+        }
+
+        .profile-email {
+            padding: 12px 18px;
+            font-size: 0.85rem;
+            color: #c0c0c0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            word-break: break-all;
+        }
+
+        .profile-dropdown-menu a {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 18px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: background 0.2s ease;
+        }
+
+        .profile-dropdown-menu a:hover {
+            background: rgba(255, 106, 0, 0.15);
+            color: #ffb400;
+        }
+
         /* Canvas and stars */
         canvas {
             position: fixed;
@@ -473,6 +536,20 @@
                 <li><a href="/"><i class="fas fa-home"></i> Home</a></li>
                 <li><a href="/about"><i class="fas fa-info-circle"></i> About</a></li>
                 <li><a href="/contact"><i class="fas fa-envelope"></i> Contact</a></li>
+                {% if current_user.is_authenticated %}
+                <li class="profile-dropdown">
+                    <button class="profile-icon-btn" onclick="toggleProfileMenu(event)" title="Account">
+                        <i class="fas fa-user-circle"></i>
+                    </button>
+                    <div class="profile-dropdown-menu" id="profileMenu">
+                        <div class="profile-email">{{ current_user.email }}</div>
+                        <a href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                    </div>
+                </li>
+                {% else %}
+                <li><a href="/login"><i class="fas fa-sign-in-alt"></i> Login</a></li>
+                <li><a href="/signup"><i class="fas fa-user-plus"></i> Sign Up</a></li>
+                {% endif %}
             </ul>
         </nav>
     </header>
@@ -529,6 +606,18 @@
     </div>
 
     <script>
+        function toggleProfileMenu(event) {
+            event.stopPropagation();
+            document.getElementById('profileMenu').classList.toggle('open');
+        }
+
+        document.addEventListener('click', function (e) {
+            const menu = document.getElementById('profileMenu');
+            if (menu && !menu.contains(e.target)) {
+                menu.classList.remove('open');
+            }
+        });
+
         // Enhanced canvas animation
         const canvas = document.getElementById('space');
         const ctx = canvas.getContext('2d');
